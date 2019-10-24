@@ -1,8 +1,8 @@
 <launch>
-  <node pkg="roboteq_bridge" type="drive_node" name="roboteq">
+  <node pkg="roboteq_bridge" type="drive_node" name="roboteq" output="screen">
     <param name="port" value="/dev/ttyACM0"/>
     <param name="baud" value="115200"/>
-    <param name="watchdog_timeout" value="100"/> <!-- millisec -->
+    <param name="watchdog_timeout" value="200"/> <!-- millisec -->
     <param name="encoder_ppr" value="256"/>
     <param name="gear_ratio" value="55.0"/>
     <param name="wheel_radius" value="0.095"/> <!-- meter -->

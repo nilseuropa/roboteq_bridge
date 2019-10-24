@@ -91,12 +91,12 @@ void configure_module(){
     controller.write(mdec_cmd2.str());
 
     // set PID parameters (gain * 10)
-    controller.write("^KP 1 20\r");
-    controller.write("^KP 2 20\r");
-    controller.write("^KI 1 20\r");
-    controller.write("^KI 2 20\r");
-    controller.write("^KD 1 0\r");
-    controller.write("^KD 2 0\r");
+    // controller.write("^KP 1 20\r");
+    // controller.write("^KP 2 20\r");
+    // controller.write("^KI 1 20\r");
+    // controller.write("^KI 2 20\r");
+    // controller.write("^KD 1 0\r");
+    // controller.write("^KD 2 0\r");
 
     // set encoder mode (18 for feedback on motor1, 34 for feedback on motor2)
     controller.write("^EMOD 1 18\r");
@@ -165,6 +165,7 @@ void read_encoder_report() {
 		char ch = 0;
 		if (controller.read((uint8_t*)&ch, 1) == 0) return; // Return if reading failed
 		if (ch == '\r') { // End of message, interpret it
+      //ROS_INFO_STREAM(odom_buf);
 			odom_buf[odom_idx] = 0;
 			// CR=... is an encoder count message
 			if (odom_buf[0] == 'C' && odom_buf[1] == 'R' && odom_buf[2] == '=') {
