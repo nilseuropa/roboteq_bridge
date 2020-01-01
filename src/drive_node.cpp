@@ -9,8 +9,9 @@
 #include <geometry_msgs/Twist.h>
 
 ros::Time         encoder_read_time, encoder_read_prev_time;
-std_msgs::Float32 measuredLeftSpeed;
-std_msgs::Float32 measuredRightSpeed;
+ros::Time         controller_response_time;
+std_msgs::Float32 measured_left_wheel_speed;
+std_msgs::Float32 measured_right_wheel_speed;
 int32_t           odom_encoder_left;
 int32_t           odom_encoder_right;
 serial::Serial    controller;
@@ -131,10 +132,10 @@ void send_motor_rpm(const int32_t motor_rpm, bool left) {
 }
 
 void cmd_vel_cb(const geometry_msgs::Twist& twist) {
-  float leftLinearVelocity  = (2.0f*twist.linear.x - wheel_separation*twist.angular.z)/2.0f;
-  float rightLinearVelocity = (2.0f*twist.linear.x + wheel_separation*twist.angular.z)/2.0f;
-  send_motor_rpm(get_motor_rpm(leftLinearVelocity) , true);
-  send_motor_rpm(get_motor_rpm(rightLinearVelocity), false);
+  float left_track_linear_velocity  = (2.0f*twist.linear.x - wheel_separation*twist.angular.z)/2.0f;
+  float right_track_linear_velocity = (2.0f*twist.linear.x + wheel_separation*twist.angular.z)/2.0f;
+  send_motor_rpm(get_motor_rpm(left_track_linear_velocity) , true);
+  send_motor_rpm(get_motor_rpm(right_track_linear_velocity), false);
   controller.flush();
 }
 
@@ -156,8 +157,8 @@ float calculate_wheel_vel(bool left) {
 	float dt = (encoder_read_time-encoder_read_prev_time).toSec();
 	float encoder_cpr = encoder_ppr * 4;
   // Indicate, that wheel vel has changed and should be published
-  controller_is_reporting = bool(dt*1000 < watchdog_timeout); // encoder output (50 hz)
-  if (controller_is_reporting) should_publish_velocities = true;
+  odom_initialized = bool(dt*1000 < 40); // encoder output (50 hz ~20ms) double taken
+  if (odom_initialized) should_publish_velocities = true;
 	return ((float)encoder_steps_delta/encoder_cpr) / gear_ratio * (wheel_radius * 2 * M_PI) / dt;
 }
 
@@ -175,12 +176,12 @@ void read_encoder_report() {
 						odom_buf[p] = 0;
 						odom_encoder_right = (int32_t)strtol(odom_buf+3, NULL, 10);
 						odom_encoder_left =  (int32_t)strtol(odom_buf+p+1, NULL, 10);
-						measuredLeftSpeed.data = calculate_wheel_vel(true);
-						measuredRightSpeed.data = calculate_wheel_vel(false);
+						measured_left_wheel_speed.data  = calculate_wheel_vel(true);
+						measured_right_wheel_speed.data = calculate_wheel_vel(false);
 						if (report_angular_velocities) {
 							// Report angular velocities for wheels, divide by wheel_radius;
-							measuredLeftSpeed.data  /= wheel_radius;
-							measuredRightSpeed.data /= wheel_radius;
+							measured_left_wheel_speed.data  /= wheel_radius;
+							measured_right_wheel_speed.data /= wheel_radius;
 						}
 						encoder_read_prev_time = encoder_read_time;
 						break; // Quit for cycle
@@ -192,7 +193,12 @@ void read_encoder_report() {
 			// Accumulate characters in the buffer
 			odom_buf[odom_idx++] = ch;
 		}
-	}
+    controller_is_reporting = true;
+    controller_response_time = ros::Time::now();
+	} else if ( (ros::Time::now()-controller_response_time).toSec()*1000 > watchdog_timeout ){
+    ROS_ERROR("Connection lost.");
+    controller_is_reporting = false;
+  }
 }
 
 int main(int argc, char **argv) {
@@ -202,31 +208,19 @@ int main(int argc, char **argv) {
   ros::NodeHandle nhLocal("~");
 
   nhLocal.param<std::string>("port", port, "/dev/ttyACM0");
-  ROS_INFO_STREAM("port: " << port);
   nhLocal.param("baud", baud, 115200);
-  ROS_INFO_STREAM("baud: " << baud);
   nhLocal.param("watchdog_timeout", watchdog_timeout, 100);
-  ROS_INFO_STREAM("watchdog_timeout: " << watchdog_timeout);
   nhLocal.param("encoder_ppr", encoder_ppr, 2048); // CUI inc AMT 102-V, PPR pre-quadrature
-  ROS_INFO_STREAM("encoder_ppr: " << encoder_ppr);
   nhLocal.param("gear_ratio", gear_ratio, 18.7); // (37/9)*(50/11) = 18.6868;
-  ROS_INFO_STREAM("gear_ratio: " << gear_ratio);
   nhLocal.param("wheel_radius", wheel_radius, 0.165);
-  ROS_INFO_STREAM("wheel_radius: " << wheel_radius);
   nhLocal.param("wheel_separation", wheel_separation, 0.56);
-  ROS_INFO_STREAM("wheel_separation: " << wheel_separation);
   nhLocal.param("report_angular_velocities", report_angular_velocities, true); // r2 stack compatibility
-  ROS_INFO_STREAM("report_angular_velocities: " << report_angular_velocities);
   nhLocal.param("motor_amp_limit", motor_amp_limit, 50); // Amps
-  ROS_INFO_STREAM("motor_amp_limit: " << motor_amp_limit);
   nhLocal.param("motor_max_speed", motor_max_speed, 100); // rpm
-  ROS_INFO_STREAM("motor_max_speed: " << motor_max_speed);
   nhLocal.param("motor_max_acceleration", motor_max_acceleration, 200); // rpm/s
-  ROS_INFO_STREAM("motor_max_acceleration: " << motor_max_acceleration);
   nhLocal.param("motor_max_deceleration", motor_max_deceleration, 200); // rpm/s
-  ROS_INFO_STREAM("motor_max_deceleration: " << motor_max_deceleration);
 
-  serial::Timeout timeout = serial::Timeout::simpleTimeout(1000);
+  serial::Timeout timeout = serial::Timeout::simpleTimeout(watchdog_timeout);
 	controller.setPort(port);
 	controller.setBaudrate(baud);
 	controller.setTimeout(timeout);
@@ -251,25 +245,23 @@ int main(int argc, char **argv) {
   configure_module();
   while (ros::ok()&&!odom_initialized) {
     read_encoder_report();
-    odom_initialized = controller_is_reporting;
   }
 
-  ros::Publisher  rightWheelVelocityPublisher = n.advertise<std_msgs::Float32>("/base/wheel_vel/right", 100);
-  ros::Publisher  leftWheelVelocityPublisher  = n.advertise<std_msgs::Float32>("/base/wheel_vel/left", 100);
-  ros::Subscriber rightWheelCmd = n.subscribe("/base/wheel_cmd/right", 100, right_wheel_cmd_cb);
-  ros::Subscriber leftWheelCmd  = n.subscribe("/base/wheel_cmd/left", 100, left_wheel_cmd_cb);
-  ros::Subscriber cmdVelCmd     = n.subscribe("/cmd_vel", 100, cmd_vel_cb);
+  ros::Publisher  right_wheel_vel_pub = n.advertise<std_msgs::Float32>("/base/wheel_vel/right", 100);
+  ros::Publisher  left_wheel_vel_pub  = n.advertise<std_msgs::Float32>("/base/wheel_vel/left", 100);
+  ros::Subscriber right_wheel_vel_cmd = n.subscribe("/base/wheel_cmd/right", 100, right_wheel_cmd_cb);
+  ros::Subscriber leftt_wheel_vel_cmd = n.subscribe("/base/wheel_cmd/left", 100, left_wheel_cmd_cb);
+  ros::Subscriber twist_cmd_sub       = n.subscribe("/cmd_vel", 100, cmd_vel_cb);
   ROS_INFO("RobotEQ bridge started.");
 
   while (ros::ok()) {
     ros::spinOnce();
 
-  	read_encoder_report();
-    if (!controller_is_reporting) ROS_ERROR("Connection to robotEQ lost.");
+  	read_encoder_report(); // TODO: allow open loop
 
   	if (should_publish_velocities) {
-  		rightWheelVelocityPublisher.publish(measuredRightSpeed);
-  		leftWheelVelocityPublisher.publish( measuredLeftSpeed);
+  		right_wheel_vel_pub.publish(measured_right_wheel_speed);
+  		left_wheel_vel_pub.publish( measured_left_wheel_speed);
   		should_publish_velocities = false;
   	}
 
