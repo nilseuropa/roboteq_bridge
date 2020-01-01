@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <string>
 #include <sstream>
+#include <ctime>
 #include <std_msgs/Float32.h>
 #include <geometry_msgs/Twist.h>
 
@@ -23,14 +24,13 @@ int               motor_max_speed;
 int               motor_max_acceleration;
 int               motor_max_deceleration;
 int               odom_idx=0;
-bool              open_loop;
+bool              odom_initialized = false;
 bool              report_angular_velocities;
-bool              shouldPublishWheelVel = false;
+bool              should_publish_velocities = false;
+bool              controller_is_reporting = false;
 double            gear_ratio;
 double            wheel_radius;
 double            wheel_separation;
-
-#define PI 3.1415926535897932384626433832795
 
 // All RPM values are revolution-per-minute
 
@@ -88,13 +88,15 @@ void configure_module(){
     mdec_cmd2 << "^MDEC 2 " << motor_max_deceleration*10 << "\r";
     controller.write(mdec_cmd2.str());
 
-    // set PID parameters (gain * 10)
-    controller.write("^KP 1 20\r");
-    controller.write("^KP 2 20\r");
-    controller.write("^KI 1 20\r");
-    controller.write("^KI 2 20\r");
-    controller.write("^KD 1 0\r");
-    controller.write("^KD 2 0\r");
+    // TODO:
+    // PID parameters (gain * 10)
+    // controller.write("^KP 1 20\r");
+    // controller.write("^KI 1 20\r");
+    // controller.write("^KD 1 0\r");
+
+    // controller.write("^KP 2 20\r");
+    // controller.write("^KI 2 20\r");
+    // controller.write("^KD 2 0\r");
 
     // set encoder mode (18 for feedback on motor1, 34 for feedback on motor2)
     controller.write("^EMOD 1 18\r");
@@ -114,7 +116,7 @@ void configure_module(){
 }
 
 int32_t get_motor_rpm(float lin_speed) {
-  return ((60.0 * lin_speed) / (wheel_radius * 2 * PI)) * gear_ratio; // wheel_rpm * gear_ratio
+  return ((60.0 * lin_speed) / (wheel_radius * 2 * M_PI)) * gear_ratio; // wheel_rpm * gear_ratio
 }
 
 void send_motor_rpm(const int32_t motor_rpm, bool left) {
@@ -153,7 +155,10 @@ float calculate_wheel_vel(bool left) {
 	else {      encoder_steps_delta = odom_encoder_right; }
 	float dt = (encoder_read_time-encoder_read_prev_time).toSec();
 	float encoder_cpr = encoder_ppr * 4;
-	return ((float)encoder_steps_delta/encoder_cpr) / gear_ratio * (wheel_radius * 2 * PI) / dt;
+  // Indicate, that wheel vel has changed and should be published
+  controller_is_reporting = bool(dt*1000 < watchdog_timeout); // encoder output (50 hz)
+  if (controller_is_reporting) should_publish_velocities = true;
+	return ((float)encoder_steps_delta/encoder_cpr) / gear_ratio * (wheel_radius * 2 * M_PI) / dt;
 }
 
 void read_encoder_report() {
@@ -176,7 +181,6 @@ void read_encoder_report() {
 							measuredLeftSpeed.data  /= wheel_radius;
 							measuredRightSpeed.data /= wheel_radius;
 						}
-						shouldPublishWheelVel = true; // Indicate, that wheel vel has changed and should be published
 						encoder_read_prev_time = encoder_read_time;
 						break; // Quit for cycle
 					}
@@ -237,29 +241,37 @@ int main(int argc, char **argv) {
 			}
 		}
 		catch (serial::IOException e) {
-			ROS_WARN_STREAM("serial::IOException: " << e.what());
+			ROS_ERROR_STREAM("serial::IOException: " << e.what());
 		}
-		ROS_WARN("Failed to open serial port");
+		ROS_ERROR("Failed to open serial port");
 		sleep( 5 );
 	}
+
   configure_module();
+  while (ros::ok()&&!odom_initialized) {
+    read_encoder_report();
+    odom_initialized = controller_is_reporting;
+  }
 
   ros::Publisher  rightWheelVelocityPublisher = n.advertise<std_msgs::Float32>("/base/wheel_vel/right", 100);
   ros::Publisher  leftWheelVelocityPublisher  = n.advertise<std_msgs::Float32>("/base/wheel_vel/left", 100);
   ros::Subscriber rightWheelCmd = n.subscribe("/base/wheel_cmd/right", 100, right_wheel_cmd_cb);
   ros::Subscriber leftWheelCmd  = n.subscribe("/base/wheel_cmd/left", 100, left_wheel_cmd_cb);
   ros::Subscriber cmdVelCmd     = n.subscribe("/cmd_vel", 100, cmd_vel_cb);
-
   ROS_INFO("RobotEQ bridge started.");
 
   while (ros::ok()) {
     ros::spinOnce();
+
   	read_encoder_report();
-  	if (shouldPublishWheelVel) {
+    if (!controller_is_reporting) ROS_ERROR("Connection to robotEQ lost.");
+
+  	if (should_publish_velocities) {
   		rightWheelVelocityPublisher.publish(measuredRightSpeed);
   		leftWheelVelocityPublisher.publish( measuredLeftSpeed);
-  		shouldPublishWheelVel = false;
+  		should_publish_velocities = false;
   	}
+
   }
 
   if (controller.isOpen()) controller.close();
