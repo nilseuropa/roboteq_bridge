@@ -132,9 +132,7 @@ void send_motor_rpm(const int32_t motor_rpm, bool left) {
 
 void cmd_vel_cb(const geometry_msgs::Twist& twist) {
   float leftLinearVelocity  = (2.0f*twist.linear.x - wheel_separation*twist.angular.z)/2.0f;
-  if (invert_left_motor) leftLinearVelocity*=-1.0f;
   float rightLinearVelocity = (2.0f*twist.linear.x + wheel_separation*twist.angular.z)/2.0f;
-  if (invert_right_motor) rightLinearVelocity*=-1.0f;
   send_motor_rpm(get_motor_rpm(leftLinearVelocity) , true);
   send_motor_rpm(get_motor_rpm(rightLinearVelocity), false);
   controller.flush();
@@ -219,10 +217,6 @@ int main(int argc, char **argv) {
   ROS_INFO_STREAM("wheel_separation: " << wheel_separation);
   nhLocal.param("report_angular_velocities", report_angular_velocities, true); // r2 stack compatibility
   ROS_INFO_STREAM("report_angular_velocities: " << report_angular_velocities);
-  nhLocal.param("invert_left_motor", invert_left_motor, false);
-  ROS_INFO_STREAM("invert_left_motor: " << invert_left_motor);
-  nhLocal.param("invert_right_motor", invert_right_motor, false);
-  ROS_INFO_STREAM("invert_right_motor: " << invert_right_motor);
   nhLocal.param("motor_amp_limit", motor_amp_limit, 50); // Amps
   ROS_INFO_STREAM("motor_amp_limit: " << motor_amp_limit);
   nhLocal.param("motor_max_speed", motor_max_speed, 100); // rpm
