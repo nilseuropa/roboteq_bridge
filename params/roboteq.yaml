@@ -1,0 +1,14 @@
+port: /dev/ttyACM0
+baud: 115200
+watchdog_timeout: 100 # millisec
+encoder_ppr: 256
+gear_ratio: 55.0
+wheel_radius: 0.095 # meter
+wheel_separation: 0.425 # meter
+motor_amp_limit: 10 # Amps
+motor_max_speed: 1000 # RPM
+motor_max_acceleration: 2000 # RPM / sec
+motor_max_deceleration: 2000 # RPM / sec
+enable_twist_input: true # differential drive on cmd_vel
+closed_loop: true # speed control and wheel velocity reports
+report_angular_velocities: true # false for linear track velocities

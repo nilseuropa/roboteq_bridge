@@ -35,7 +35,7 @@ double            wheel_separation;
 
 // All RPM values are revolution-per-minute
 
-void configure_module(){
+void configure_module(bool closed_loop){
 
     // stop motors
     controller.write("!G 1 0\r");
@@ -89,46 +89,49 @@ void configure_module(){
     mdec_cmd2 << "^MDEC 2 " << motor_max_deceleration*10 << "\r";
     controller.write(mdec_cmd2.str());
 
-    // TODO:
-    // PID parameters (gain * 10)
-    // controller.write("^KP 1 20\r");
-    // controller.write("^KI 1 20\r");
-    // controller.write("^KD 1 0\r");
+    if (closed_loop){
+      // TODO:
+      // * add PID params
+      // * set feedback
+      // PID parameters (gain * 10)
+      // controller.write("^KP 1 20\r");
+      // controller.write("^KI 1 20\r");
+      // controller.write("^KD 1 0\r");
+      // controller.write("^KP 2 20\r");
+      // controller.write("^KI 2 20\r");
+      // controller.write("^KD 2 0\r");
+      
+      // set encoder mode (18 for feedback on motor1, 34 for feedback on motor2)
+      controller.write("^EMOD 1 18\r");
+      controller.write("^EMOD 2 34\r");
+      // set encoder counts (ppr)
+      std::stringstream right_enccmd;
+      right_enccmd << "^EPPR 1 " << encoder_ppr << "\r";
+      std::stringstream left_enccmd;
+      left_enccmd << "^EPPR 2 " << encoder_ppr << "\r";
+      controller.write(right_enccmd.str());
+      controller.write(left_enccmd.str());
+      // start encoder output (50 hz)
+      controller.write("# C_?CR_# 20\r");
+    }
 
-    // controller.write("^KP 2 20\r");
-    // controller.write("^KI 2 20\r");
-    // controller.write("^KD 2 0\r");
-
-    // set encoder mode (18 for feedback on motor1, 34 for feedback on motor2)
-    controller.write("^EMOD 1 18\r");
-    controller.write("^EMOD 2 34\r");
-
-    // set encoder counts (ppr)
-    std::stringstream right_enccmd;
-    right_enccmd << "^EPPR 1 " << encoder_ppr << "\r";
-    std::stringstream left_enccmd;
-    left_enccmd << "^EPPR 2 " << encoder_ppr << "\r";
-    controller.write(right_enccmd.str());
-    controller.write(left_enccmd.str());
-
-    // start encoder output (50 hz)
-    controller.write("# C_?CR_# 20\r");
     controller.flush();
 }
 
 int32_t get_motor_rpm(float lin_speed) {
-  return ((60.0 * lin_speed) / (wheel_radius * 2 * M_PI)) * gear_ratio; // wheel_rpm * gear_ratio
+  return int32_t( ((60.0 * lin_speed) / (wheel_radius * 2 * M_PI)) * gear_ratio );
 }
 
 void send_motor_rpm(const int32_t motor_rpm, bool left) {
   std::stringstream cmd;
   if (left) {
-	cmd << "!S 2 ";
+	   cmd << "!S 2 ";
   } else {
-	cmd << "!S 1 ";
+	   cmd << "!S 1 ";
   }
   cmd << motor_rpm << "\r";
   controller.write(cmd.str());
+  controller.flush();
 }
 
 void cmd_vel_cb(const geometry_msgs::Twist& twist) {
@@ -136,17 +139,14 @@ void cmd_vel_cb(const geometry_msgs::Twist& twist) {
   float right_track_linear_velocity = (2.0f*twist.linear.x + wheel_separation*twist.angular.z)/2.0f;
   send_motor_rpm(get_motor_rpm(left_track_linear_velocity) , true);
   send_motor_rpm(get_motor_rpm(right_track_linear_velocity), false);
-  controller.flush();
 }
 
 void left_wheel_cmd_cb(const std_msgs::Float32& left_speed){
   send_motor_rpm(get_motor_rpm(left_speed.data), true);
-  controller.flush();
 }
 
 void right_wheel_cmd_cb(const std_msgs::Float32& right_speed){
   send_motor_rpm(get_motor_rpm(right_speed.data), false);
-  controller.flush();
 }
 
 float calculate_wheel_vel(bool left) {
@@ -165,7 +165,10 @@ float calculate_wheel_vel(bool left) {
 void read_encoder_report() {
 	if (controller.available()) {
 		char ch = 0;
-		if (controller.read((uint8_t*)&ch, 1) == 0) return; // Return if reading failed
+		if (controller.read((uint8_t*)&ch, 1) == 0) {
+      ROS_WARN("Controller read failed.");
+      return; // Return if reading failed
+    }
 		if (ch == '\r') { // End of message, interpret it
       //ROS_INFO_STREAM(odom_buf);
 			odom_buf[odom_idx] = 0;
@@ -196,7 +199,7 @@ void read_encoder_report() {
     controller_is_reporting = true;
     controller_response_time = ros::Time::now();
 	} else if ( (ros::Time::now()-controller_response_time).toSec()*1000 > watchdog_timeout ){
-    ROS_ERROR("Connection lost.");
+    ROS_WARN("Encoder stream unavailable.");
     controller_is_reporting = false;
   }
 }
@@ -206,6 +209,8 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "drive_node");
   ros::NodeHandle n;
   ros::NodeHandle nhLocal("~");
+
+  bool enable_twist_input, closed_loop;
 
   nhLocal.param<std::string>("port", port, "/dev/ttyACM0");
   nhLocal.param("baud", baud, 115200);
@@ -219,6 +224,8 @@ int main(int argc, char **argv) {
   nhLocal.param("motor_max_speed", motor_max_speed, 100); // rpm
   nhLocal.param("motor_max_acceleration", motor_max_acceleration, 200); // rpm/s
   nhLocal.param("motor_max_deceleration", motor_max_deceleration, 200); // rpm/s
+  nhLocal.param("enable_twist_input",enable_twist_input,true);
+  nhLocal.param("closed_loop",closed_loop,true);
 
   serial::Timeout timeout = serial::Timeout::simpleTimeout(watchdog_timeout);
 	controller.setPort(port);
@@ -242,22 +249,35 @@ int main(int argc, char **argv) {
 		sleep( 5 );
 	}
 
-  configure_module();
+  configure_module(closed_loop);
   while (ros::ok()&&!odom_initialized) {
     read_encoder_report();
   }
+  ROS_INFO("Motor controller configured.");
 
-  ros::Publisher  right_wheel_vel_pub = n.advertise<std_msgs::Float32>("/base/wheel_vel/right", 100);
-  ros::Publisher  left_wheel_vel_pub  = n.advertise<std_msgs::Float32>("/base/wheel_vel/left", 100);
+  ros::Publisher  right_wheel_vel_pub;
+  ros::Publisher  left_wheel_vel_pub;
+
+  if (closed_loop) {
+    right_wheel_vel_pub = n.advertise<std_msgs::Float32>("/base/wheel_vel/right", 100);
+    left_wheel_vel_pub  = n.advertise<std_msgs::Float32>("/base/wheel_vel/left", 100);
+    ROS_INFO("Advertising wheel velocities.");
+  }
+
   ros::Subscriber right_wheel_vel_cmd = n.subscribe("/base/wheel_cmd/right", 100, right_wheel_cmd_cb);
   ros::Subscriber leftt_wheel_vel_cmd = n.subscribe("/base/wheel_cmd/left", 100, left_wheel_cmd_cb);
-  ros::Subscriber twist_cmd_sub       = n.subscribe("/cmd_vel", 100, cmd_vel_cb);
-  ROS_INFO("RobotEQ bridge started.");
 
+  ros::Subscriber twist_cmd_sub;
+  if (enable_twist_input){
+    twist_cmd_sub = n.subscribe("/cmd_vel", 100, cmd_vel_cb);
+    ROS_INFO("Subscribed to /cmd_vel");
+  }
+
+  ROS_INFO("Drive node started.");
   while (ros::ok()) {
     ros::spinOnce();
 
-  	read_encoder_report(); // TODO: allow open loop
+  	//read_encoder_report(); // TODO: allow open loop
 
   	if (should_publish_velocities) {
   		right_wheel_vel_pub.publish(measured_right_wheel_speed);
@@ -265,9 +285,10 @@ int main(int argc, char **argv) {
   		should_publish_velocities = false;
   	}
 
+    // TODO: fault handling on "!controller_is_reporting"
   }
 
   if (controller.isOpen()) controller.close();
-  ROS_INFO("RobotEQ bridge exiting.");
+  ROS_INFO("Drive node exiting...");
   return 0;
 }
