@@ -170,35 +170,57 @@ void read_encoder_report() {
       return; // Return if reading failed
     }
 		if (ch == '\r') { // End of message, interpret it
-      //ROS_INFO_STREAM(odom_buf);
 			odom_buf[odom_idx] = 0;
 			// CR=... is an encoder count message
 			if (odom_buf[0] == 'C' && odom_buf[1] == 'R' && odom_buf[2] == '=') {
-				for (int p = 3; p < odom_idx; p++ ) { // Cycle through the buffer
-					if (odom_buf[p] == ':') {
-						odom_buf[p] = 0;
-						odom_encoder_right = (int32_t)strtol(odom_buf+3, NULL, 10);
-						odom_encoder_left =  (int32_t)strtol(odom_buf+p+1, NULL, 10);
-						measured_left_wheel_speed.data  = calculate_wheel_vel(true);
-						measured_right_wheel_speed.data = calculate_wheel_vel(false);
-						if (report_angular_velocities) {
-							// Report angular velocities for wheels, divide by wheel_radius;
-							measured_left_wheel_speed.data  /= wheel_radius;
-							measured_right_wheel_speed.data /= wheel_radius;
-						}
-						encoder_read_prev_time = encoder_read_time;
-						break; // Quit for cycle
-					}
-				}
+
+        char right_buf[10];
+        int  left_idx = 0;
+        bool msg_valid = false;
+
+        for (int f = 3; f < odom_idx; f++ ) {
+          if (odom_buf[f] != ':') {
+            right_buf[f-3]=odom_buf[f];
+          }
+          else {
+            msg_valid = true;
+            left_idx = f+1;
+            break;
+          }
+        }
+
+        if (msg_valid){
+
+          odom_encoder_right = (int32_t)strtol(right_buf, NULL, 10);
+          measured_right_wheel_speed.data = calculate_wheel_vel(false);
+
+          char left_buf[10];
+          for (int p = left_idx; p < odom_idx; p++ ) {
+            left_buf[p-left_idx] = odom_buf[p];
+          }
+          odom_encoder_left =  (int32_t)strtol(left_buf, NULL, 10);
+          measured_left_wheel_speed.data  = calculate_wheel_vel(true);
+
+          if (report_angular_velocities) {
+            // Report angular velocities for wheels, divide by wheel_radius;
+            measured_left_wheel_speed.data  /= wheel_radius;
+            measured_right_wheel_speed.data /= wheel_radius;
+          }
+
+          encoder_read_prev_time = encoder_read_time;
+        }
 			}
 			odom_idx = 0;
-		} else if (odom_idx < (sizeof(odom_buf)-1) ) {
+		}
+    else if ( odom_idx < (sizeof(odom_buf)-1) ) {
 			// Accumulate characters in the buffer
 			odom_buf[odom_idx++] = ch;
 		}
     controller_is_reporting = true;
     controller_response_time = ros::Time::now();
-	} else if ( (ros::Time::now()-controller_response_time).toSec()*1000 > watchdog_timeout ){
+	}
+  else if ( (ros::Time::now()-controller_response_time).toSec()*1000 > watchdog_timeout )
+  {
     ROS_WARN("Encoder stream unavailable.");
     controller_is_reporting = false;
   }
@@ -279,7 +301,7 @@ int main(int argc, char **argv) {
 
     // TODO: fault handling on "!controller_is_reporting"
     if (closed_loop) {
-      read_encoder_report(); // TODO: allow open loop
+      read_encoder_report(); 
     	if (should_publish_velocities) {
     		right_wheel_vel_pub.publish(measured_right_wheel_speed);
     		left_wheel_vel_pub.publish( measured_left_wheel_speed);
