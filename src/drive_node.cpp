@@ -100,7 +100,7 @@ void configure_module(bool closed_loop){
       // controller.write("^KP 2 20\r");
       // controller.write("^KI 2 20\r");
       // controller.write("^KD 2 0\r");
-      
+
       // set encoder mode (18 for feedback on motor1, 34 for feedback on motor2)
       controller.write("^EMOD 1 18\r");
       controller.write("^EMOD 2 34\r");
@@ -277,15 +277,15 @@ int main(int argc, char **argv) {
   while (ros::ok()) {
     ros::spinOnce();
 
-  	//read_encoder_report(); // TODO: allow open loop
-
-  	if (should_publish_velocities) {
-  		right_wheel_vel_pub.publish(measured_right_wheel_speed);
-  		left_wheel_vel_pub.publish( measured_left_wheel_speed);
-  		should_publish_velocities = false;
-  	}
-
     // TODO: fault handling on "!controller_is_reporting"
+    if (closed_loop) {
+      read_encoder_report(); // TODO: allow open loop
+    	if (should_publish_velocities) {
+    		right_wheel_vel_pub.publish(measured_right_wheel_speed);
+    		left_wheel_vel_pub.publish( measured_left_wheel_speed);
+    		should_publish_velocities = false;
+    	}
+    }
   }
 
   if (controller.isOpen()) controller.close();
