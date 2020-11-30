@@ -281,13 +281,13 @@ int main(int argc, char **argv) {
   ros::Publisher  left_wheel_vel_pub;
 
   if (closed_loop) {
-    right_wheel_vel_pub = n.advertise<std_msgs::Float32>("/base/wheel_vel/right", 100);
-    left_wheel_vel_pub  = n.advertise<std_msgs::Float32>("/base/wheel_vel/left", 100);
+    right_wheel_vel_pub = n.advertise<std_msgs::Float32>("/right_motor/velocity", 100);
+    left_wheel_vel_pub  = n.advertise<std_msgs::Float32>("/left_motor/velocity", 100);
     ROS_INFO("Advertising wheel velocities.");
   }
 
-  ros::Subscriber right_wheel_vel_cmd = n.subscribe("/base/wheel_cmd/right", 100, right_wheel_cmd_cb);
-  ros::Subscriber leftt_wheel_vel_cmd = n.subscribe("/base/wheel_cmd/left", 100, left_wheel_cmd_cb);
+  ros::Subscriber right_wheel_vel_cmd = n.subscribe("/right_motor/command", 100, right_wheel_cmd_cb);
+  ros::Subscriber left_wheel_vel_cmd  = n.subscribe("/left_motor/command", 100, left_wheel_cmd_cb);
 
   ros::Subscriber twist_cmd_sub;
   if (enable_twist_input){
@@ -301,7 +301,7 @@ int main(int argc, char **argv) {
 
     // TODO: fault handling on "!controller_is_reporting"
     if (closed_loop) {
-      read_encoder_report(); 
+      read_encoder_report();
     	if (should_publish_velocities) {
     		right_wheel_vel_pub.publish(measured_right_wheel_speed);
     		left_wheel_vel_pub.publish( measured_left_wheel_speed);
