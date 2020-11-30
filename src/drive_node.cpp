@@ -280,8 +280,8 @@ int main(int argc, char **argv) {
   ros::Publisher  right_wheel_vel_pub;
   ros::Publisher  left_wheel_vel_pub;
 
-  right_wheel_vel_pub = n.advertise<std_msgs::Float32>("/right_wheel/velocity", 100);
-  left_wheel_vel_pub  = n.advertise<std_msgs::Float32>("/left_wheel/velocity", 100);
+  right_wheel_vel_pub = n.advertise<std_msgs::Float32>("/right_motor/velocity", 100);
+  left_wheel_vel_pub  = n.advertise<std_msgs::Float32>("/left_motor/velocity", 100);
 
   ros::Subscriber right_wheel_vel_cmd = n.subscribe("/right_motor/command", 100, right_wheel_cmd_cb);
   ros::Subscriber leftt_wheel_vel_cmd = n.subscribe("/left_motor/command", 100, left_wheel_cmd_cb);
