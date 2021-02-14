@@ -1,14 +1,22 @@
-port: /dev/ttyACM0
+port: /dev/roboteq
 baud: 115200
-watchdog_timeout: 100 # millisec
-encoder_ppr: 256
-gear_ratio: 55.0
-wheel_radius: 0.095 # meter
-wheel_separation: 0.425 # meter
-motor_amp_limit: 10 # Amps
-motor_max_speed: 1000 # RPM
-motor_max_acceleration: 2000 # RPM / sec
-motor_max_deceleration: 2000 # RPM / sec
-enable_twist_input: true # differential drive on cmd_vel
-closed_loop: true # speed control and wheel velocity reports
-report_angular_velocities: true # false for linear track velocities
+watchdog_timeout: 100 # topic and serial communication timeout [millisec]
+encoder_ppr: 256 # pulses per revolutions on the motor axis encoder
+gear_ratio: 55.0 # ratio by the motor axis rotations are slowed down to wheel axis
+wheel_radius: 0.095 # driven wheel radius for differential drive [meter]
+wheel_separation: 0.425 # distance of driven wheels for differential drive [meter]
+motor_amp_limit: 10 # maximum current issued to motors [Amps]
+motor_max_speed: 1000 # maximum speed issued to motors [RPM]
+motor_max_acceleration: 2000 # [RPM / sec]
+motor_max_deceleration: 2000 # [RPM / sec]
+closed_loop: true # roboteq internal speed controller (PID)
+enable_twist_input: false # differential drive on /cmd_vel
+publish_velocities: true # wheel velocities [rad/sec]
+publish_currents: true # motor currents Float32 topics [Amps]
+current_lpf_tau: 0.5 # motor current low pass filter time constant
+publish_battery_state: true # batteryState topic
+battery_frame: base_link # frame_id for batteryState topic
+aux_brake_control: true # whether to use automatic braking or enable external control topic on /brake
+invert_brake_mode: true # digital output open drain config
+brake_rpm_threshold: 0 # automatic brake release above desired command threshold [RPM]
+brake_timeout: 500 # automatic brake lock after all motors received stop command
